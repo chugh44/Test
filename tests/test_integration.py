@@ -85,3 +85,14 @@ def test_report_has_all_sections(result):
         assert f"## {i}." in md
     assert "DEMO DATA" in md and "not financial advice" in md
     assert "<table>" in build_html(md, "t")
+
+
+def test_artifact_page(result):
+    from stockintel.report.page import build_page
+    state, _, _ = result
+    html = build_page(state, compute(state["findings"], 10000, "3M", "Moderate", "Swing trading").to_dict(),
+                      SyntheticProvider(end="2025-06-30").history("NVDA")["Close"])
+    assert html.startswith("<title>NVDA Research Report</title>")
+    assert "<html" not in html and "<body" not in html and "<!doctype" not in html.lower()
+    assert "DEMO DATA" in html and "<svg" in html and "prefers-color-scheme: dark" in html
+    assert html.count("<div") == html.count("</div>") and html.count("<section") == html.count("</section>")

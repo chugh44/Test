@@ -33,21 +33,13 @@ python -m stockintel.cli "<ticker or company>" \
 - If it prints `Invalid ticker`, tell the user and ask for the right symbol.
 - Use `--demo` only when the user asks for an offline demo. It produces SYNTHETIC data, and you must say so.
 
-## 2. Publish the report
+## 2. Publish the report page
 
-Read the generated `reports/<TICKER>_<id>.md`, then publish it as a claude.ai Artifact (load the
-`artifact-design` skill first). Build an HTML page from the report's content:
-- the decision banner (BUY / HOLD / SELL, conviction, entry timing);
-- the forecast table;
-- the agent votes and conflicts;
-- the scenario outcomes;
-- the risks;
-- the sources and the "data as of" lines.
-
-Keep every number exactly as the report states it. Never add figures, targets or news that are not in the
-report. Keep the "Wall Street analyst targets are not AI forecasts" separation and the disclaimer. If the
-report says DEMO DATA, the page must say so prominently. Updating an earlier StockIntel page for the same
-ticker in this conversation means republishing the same file path.
+The run also writes `reports/<TICKER>_page.html`, a finished claude.ai page generated in code from the
+agents' findings, so every number on it is exact. Publish that file with the Artifact tool (`icon: "chart"`,
+plus a one-sentence `description`). Don't hand-write or edit the figures. Re-running the same ticker rewrites
+the same path, so publishing it again in this conversation updates the same page link. If the run printed
+DEMO data, the page already carries the banner; say so in chat too.
 
 ## 3. Reply in chat
 

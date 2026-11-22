@@ -12,6 +12,7 @@ from .config import get_settings
 from .llm.client import LLMClient
 from .orchestration.graph import Runtime, stream_analysis
 from .report.builder import build_html, build_markdown
+from .report.page import build_page
 from .scenarios import compute
 from .storage.db import Store
 
@@ -60,9 +61,16 @@ def main(argv: list[str] | None = None) -> int:
         fh.write(md)
     with open(base + ".html", "w") as fh:
         fh.write(build_html(md, f"{state['ticker']} research report"))
+    try:
+        closes = provider.history(state["ticker"], f"{settings.history_years}y")["Close"]
+    except Exception:
+        closes = None
+    page_path = os.path.join(a.out, f"{state['ticker']}_page.html")  # stable path: republishing updates one page
+    with open(page_path, "w") as fh:
+        fh.write(build_page(state, scen, closes))
     c = state["final"].data
     print(json.dumps({"ticker": state["ticker"], "decision": c.decision, "conviction": c.conviction,
-                      "entry_timing": c.entry_timing, "score": c.score, "report": base + ".md",
+                      "entry_timing": c.entry_timing, "score": c.score, "report": base + ".md", "page": page_path,
                       "analysis_id": state.get("analysis_id")}, indent=2))
     return 0
 
