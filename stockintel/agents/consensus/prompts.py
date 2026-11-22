@@ -6,6 +6,8 @@ BASE_WEIGHTS = {
 HALF_LIFE_DAYS = {"forecasting": 5, "news": 3, "analyst": 45, "fundamentals": 150, "technical": 5, "macro": 7,
                   "flow": 45}
 DECISION_THRESHOLD = 0.12
+MIN_DIRECTIONAL_CONVICTION = 25   # a BUY/SELL weaker than this is reported as HOLD
+MIN_ENTER_NOW_CONVICTION = 50     # "ENTER NOW" needs at least this much conviction
 CONFLICT_MIN_SIGNAL = 0.25
 
 METHOD = (

@@ -88,7 +88,10 @@ def test_consensus_and_risk_review(ctx):
     assert r.data.review.notes
     final = ConsensusAgent().run(ctx)
     d = final.data
-    assert d.decision == draft.decision  # the LLM/narrative never changes the decision
+    # The narrative never changes the decision; only the low-conviction rule may soften it to HOLD.
+    assert d.decision == draft.decision or (d.decision == "HOLD" and d.conviction < 25)
+    if d.entry_timing == "ENTER NOW":
+        assert d.conviction >= 50
     if r.data.review.conviction_cap is not None:
         assert d.conviction <= r.data.review.conviction_cap
     if d.decision == "SELL" or r.data.review.veto:

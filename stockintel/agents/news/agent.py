@@ -128,6 +128,14 @@ class NewsAgent(BaseAgent):
                                summary="No news could be retrieved.", unavailable=unavailable)
 
         items, dups = dedupe(items)
+        # Provider feeds mix in general market stories. Without an LLM to judge relevance, keep only items
+        # that name the company or the ticker.
+        if not ctx.llm.available:
+            names = {ctx.ticker.lower()} | {w.lower().strip(",.") for w in name.split()[:1] if len(w) > 2}
+            rel = [i for i in items if any(n in f"{i.title} {i.summary or ''}".lower() for n in names)]
+            if len(rel) < len(items):
+                warnings.append(f"{len(items) - len(rel)} feed items that do not mention {ctx.ticker} were excluded.")
+            items = rel
         items = sorted(items, key=lambda i: i.published_at or datetime.min.replace(tzinfo=timezone.utc),
                        reverse=True)[:30]
         by_id = {i.id: i for i in items}
@@ -192,7 +200,7 @@ class NewsAgent(BaseAgent):
                     risks.append(EventOut(text=o.title, source_urls=[o.url] if o.url else []))
         try:
             ed = ctx.provider.calendar(ctx.ticker).get("earnings_date")
-            if ed:
+            if ed and ed.date() >= datetime.now(timezone.utc).date():
                 catalysts.insert(0, EventOut(text="Next earnings report", expected_date=ed.date().isoformat(),
                                              kind="calendar", source_urls=[]))
         except Exception:

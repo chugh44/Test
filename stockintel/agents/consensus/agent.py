@@ -16,7 +16,7 @@ import numpy as np
 
 from ...schemas.common import AgentFinding, stance_of
 from ..base import AgentContext, BaseAgent
-from .prompts import (BASE_WEIGHTS, CONFLICT_MIN_SIGNAL, DECISION_THRESHOLD, HALF_LIFE_DAYS, METHOD, SYSTEM_THESIS,
+from .prompts import (MIN_DIRECTIONAL_CONVICTION, MIN_ENTER_NOW_CONVICTION, BASE_WEIGHTS, CONFLICT_MIN_SIGNAL, DECISION_THRESHOLD, HALF_LIFE_DAYS, METHOD, SYSTEM_THESIS,
                       USER_THESIS)
 from .schema import AgentVote, ConsensusData, ConsensusFinding, Conflict, DraftDecision, LLMThesis
 
@@ -100,16 +100,18 @@ def build_draft(findings: dict[str, AgentFinding]) -> DraftDecision:
                          agreements=agreements, forecast_vs_analyst=fva)
 
 
-def _template_thesis(ticker, draft: DraftDecision, findings, timing) -> LLMThesis:
+def _template_thesis(ticker, draft: DraftDecision, findings, timing, decision: str) -> LLMThesis:
     bulls = [v for v in draft.votes if v.stance == "bullish" and v.effective_weight > 0]
     bears = [v for v in draft.votes if v.stance == "bearish" and v.effective_weight > 0]
-    para1 = (f"The weighted evidence score is {draft.score:+.2f}, which maps to {draft.decision}. "
+    maps = (f"which maps to {decision}" if decision == draft.decision else
+            f"which maps to {draft.decision}, softened to {decision} because conviction is low")
+    para1 = (f"The weighted evidence score is {draft.score:+.2f}, {maps}. "
              f"{len(bulls)} agents lean bullish and {len(bears)} lean bearish, with agreement {draft.agreement:.0%}.")
     para2 = ("Main conflicts: " + " ".join(c.description for c in draft.conflicts[:3])) if draft.conflicts else \
         "No material conflicts between agents."
     bp = [kp for v in bulls for kp in (findings[v.agent].key_points[:2])][:6]
     br = [r for v in draft.votes for r in findings[v.agent].risks[:2] if findings.get(v.agent)][:6]
-    return LLMThesis(headline=f"{ticker}: {draft.decision} ({timing.lower()}). Conviction {draft.conviction:.0f}/100.",
+    return LLMThesis(headline=f"{ticker}: {decision} ({timing.lower()}). Conviction {draft.conviction:.0f}/100.",
                      thesis=para1 + "\n\n" + para2, bull_points=bp or ["No strong bullish evidence."],
                      bear_points=br or ["No strong bearish evidence."],
                      what_changes_our_mind=["A change in the evidence score's sign at the next refresh",
@@ -139,15 +141,23 @@ class ConsensusAgent(BaseAgent):
                 conviction = review.conviction_cap
             adjustments += [n for n in review.notes if not n.startswith("No risk objections")]
 
-        if draft.decision == "SELL":
+        decision = draft.decision
+        if decision != "HOLD" and conviction < MIN_DIRECTIONAL_CONVICTION:
+            adjustments.append(f"Draft {decision} downgraded to HOLD: conviction {conviction:.0f} is below "
+                               f"{MIN_DIRECTIONAL_CONVICTION}, so the evidence is too contested for a directional call.")
+            decision = "HOLD"
+        if decision == "SELL":
             timing, why = "AVOID", "The evidence is net bearish; avoid new long positions (existing holders could reduce)."
         elif review and review.veto:
             timing, why = "AVOID", "Risk veto: " + "; ".join(review.notes)
-        elif draft.decision == "HOLD":
+        elif decision == "HOLD":
             timing = "WAIT FOR BETTER ENTRY"
             why = "The evidence is balanced. Wait for a clearer signal or a pullback into the entry zone."
         elif review and review.force_wait:
             timing, why = "WAIT FOR BETTER ENTRY", " ".join(review.notes)
+        elif conviction < MIN_ENTER_NOW_CONVICTION:
+            timing, why = "WAIT FOR BETTER ENTRY", (f"Conviction {conviction:.0f} is below {MIN_ENTER_NOW_CONVICTION}; "
+                                                     "wait for the evidence to firm up before entering.")
         elif plan and plan.entry_low <= price <= plan.entry_high * 1.005:
             timing, why = "ENTER NOW", f"Price {price:.2f} is inside the entry zone {plan.entry_low:.2f}–{plan.entry_high:.2f}."
         else:
@@ -178,12 +188,12 @@ class ConsensusAgent(BaseAgent):
         }
         name = (ctx.shared.get("profile") or {}).get("longName", ctx.ticker)
         th = ctx.llm.structured(purpose="consensus_thesis", system=SYSTEM_THESIS, schema=LLMThesis, effort="high",
-                                user=USER_THESIS.format(ticker=ctx.ticker, name=name, decision=draft.decision,
+                                user=USER_THESIS.format(ticker=ctx.ticker, name=name, decision=decision,
                                                         conviction=round(conviction), timing=timing,
                                                         evidence=json.dumps(evidence, default=str, indent=1)))
         narrative_src = f"Claude ({ctx.llm.model})" if th else "template (no LLM configured)"
         if th is None:
-            th = _template_thesis(ctx.ticker, draft.model_copy(update={"conviction": conviction}), f, timing)
+            th = _template_thesis(ctx.ticker, draft.model_copy(update={"conviction": conviction}), f, timing, decision)
 
         st = lt = ""
         if tech and tech.data:
@@ -194,12 +204,12 @@ class ConsensusAgent(BaseAgent):
             lt += f"; fundamentals: {fund.data.valuation_verdict.lower()}."
         return ConsensusFinding(
             agent=self.name, ticker=ctx.ticker, signal=draft.score, confidence=conviction / 100,
-            summary=f"{draft.decision}, conviction {conviction:.0f}/100, {timing.lower()}.",
+            summary=f"{decision}, conviction {conviction:.0f}/100, {timing.lower()}.",
             key_points=[th.headline] + draft.agreements, risks=key_risks,
             sources=[s for k, v in f.items() for s in v.sources[:3]][:25],
             data_as_of=datetime.now(timezone.utc), warnings=[w for v in f.values() for w in v.warnings[:1]][:3],
             data=ConsensusData(
-                decision=draft.decision, conviction=int(round(conviction)), score=draft.score, entry_timing=timing,
+                decision=decision, conviction=int(round(conviction)), score=draft.score, entry_timing=timing,
                 entry_rationale=why, entry_zone=[plan.entry_low, plan.entry_high] if plan else None,
                 stop_loss=risk.data.stop_loss if risk and risk.data else (plan.stop_loss if plan else None),
                 targets=[plan.target_1, plan.target_2] if plan else [], short_term_view=st, long_term_view=lt,

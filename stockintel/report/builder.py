@@ -208,7 +208,7 @@ def build_markdown(state: dict, scenario: dict | None = None) -> str:
         L.append(f"- Stop-loss: {_p(c.stop_loss)}")
         L.append(f"- Targets: {', '.join(f'{x:,.2f}' for x in c.targets) or 'unavailable'}")
     if rk and rk.data:
-        L.append(f"- Risk/reward: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in rk.data.risk_reward.items() if v is not None))
+        L.append("- Risk/reward: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in rk.data.risk_reward.items() if v is not None))
         L.append("- Position sizing: " + "; ".join(f"{s.profile}: {s.position_pct_of_portfolio:.1f}% of portfolio"
                                                   + ("" if s.suitable else " (not suitable)") for s in rk.data.position_sizing))
     L.append(f"\n---\n<sub>{DISCLAIMER}</sub>")

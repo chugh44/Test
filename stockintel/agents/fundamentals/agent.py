@@ -221,7 +221,7 @@ class FundamentalsAgent(BaseAgent):
             return list(reversed(out))
 
         coverage = sum(v is not None for v in m.values()) / len(m)
-        latest = rev_a.index[0] if rev_a is not None else None
+        latest = rev_q.index[0] if rev_q is not None else rev_a.index[0] if rev_a is not None else None
         kp = []
         if g is not None:
             kp.append(f"Revenue {g:+.1%} YoY" + (f", 3-yr CAGR {m['revenue_cagr_3y']:.1%}" if m["revenue_cagr_3y"] else ""))
