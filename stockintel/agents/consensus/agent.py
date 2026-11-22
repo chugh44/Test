@@ -92,7 +92,8 @@ def build_draft(findings: dict[str, AgentFinding]) -> DraftDecision:
 
     decision = "BUY" if score > DECISION_THRESHOLD else "SELL" if score < -DECISION_THRESHOLD else "HOLD"
     strength = min(1.0, abs(score) / 0.45) if decision != "HOLD" else max(0.0, 1 - abs(score) / DECISION_THRESHOLD) * 0.6
-    penalty = sum(5 + 10 * c.severity for c in conflicts)
+    # Conflicts lower conviction, capped so that contested evidence reads as "low conviction" and not as zero.
+    penalty = min(30.0, sum(4 + 8 * c.severity for c in conflicts))
     conviction = float(np.clip(100 * (0.45 * strength + 0.35 * agreement + 0.20 * coverage) - penalty, 0, 100))
     return DraftDecision(decision=decision, score=round(score, 4), conviction=round(conviction, 1),
                          agreement=round(agreement, 3), coverage=round(coverage, 3), votes=votes, conflicts=conflicts,
