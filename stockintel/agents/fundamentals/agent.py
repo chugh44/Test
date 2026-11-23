@@ -47,6 +47,14 @@ def _ratio(a, b) -> float | None:
     return a / b if a is not None and b not in (None, 0) else None
 
 
+def _margin(a, rev) -> float | None:
+    """A margin is meaningful only on positive revenue and within ±500% (tiny revenue bases give nonsense)."""
+    if a is None or rev is None or rev <= 0:
+        return None
+    m = a / rev
+    return m if abs(m) <= 5 else None
+
+
 def _median(vals) -> float | None:
     v = [x for x in vals if x is not None and x > 0]
     return float(np.median(v)) if v else None
@@ -101,13 +109,13 @@ class FundamentalsAgent(BaseAgent):
             "revenue_cagr_3y": ((rev0 / _at(rev_a, 3)) ** (1 / 3) - 1) if rev0 and _at(rev_a, 3) else None,
             "eps_growth_yoy": _g(_at(eps_a, 0), _at(eps_a, 1)) or _num(info.get("earningsGrowth")),
             "net_income_growth_yoy": _g(_at(ni_a, 0), _at(ni_a, 1)),
-            "gross_margin": _ratio(_at(gp_a, 0), rev0) or _num(info.get("grossMargins")),
-            "operating_margin": _ratio(_at(op_a, 0), rev0) or _num(info.get("operatingMargins")),
-            "operating_margin_prior": _ratio(_at(op_a, 1), rev1),
-            "net_margin": _ratio(_at(ni_a, 0), rev0) or _num(info.get("profitMargins")),
+            "gross_margin": _margin(_at(gp_a, 0), rev0) or _num(info.get("grossMargins")),
+            "operating_margin": _margin(_at(op_a, 0), rev0) or _num(info.get("operatingMargins")),
+            "operating_margin_prior": _margin(_at(op_a, 1), rev1),
+            "net_margin": _margin(_at(ni_a, 0), rev0) or _num(info.get("profitMargins")),
             "roe": _num(info.get("returnOnEquity")),
             "free_cash_flow": fcf0 if fcf0 is not None else _num(info.get("freeCashflow")),
-            "fcf_margin": _ratio(fcf0, rev0),
+            "fcf_margin": _margin(fcf0, rev0),
             "fcf_conversion": _ratio(fcf0, _at(ni_a, 0)) if (_at(ni_a, 0) or 0) > 0 else None,
             "total_debt": _at(debt, 0) or _num(info.get("totalDebt")),
             "cash": _at(cash, 0) or _num(info.get("totalCash")),
@@ -122,6 +130,12 @@ class FundamentalsAgent(BaseAgent):
         val = {k: _num(info.get(v)) for k, v in VAL_KEYS.items()}
         if val["peg"] is None:
             val["peg"] = _num(info.get("trailingPegRatio"))
+        loss_making = (_num(info.get("trailingEps")) or 0) < 0 or (_at(ni_a, 0) or 0) < 0
+        for k in ("trailing_pe", "forward_pe", "ev_ebitda", "price_to_sales", "price_to_book", "peg"):
+            if val[k] is not None and val[k] <= 0:
+                val[k] = None  # negative multiples are not meaningful
+        if loss_making or val["forward_pe"] is None:
+            val["peg"] = None  # a PEG needs positive earnings and growth
         if not any(v is not None for v in val.values()):
             unavailable.append("valuation multiples")
 
@@ -203,7 +217,11 @@ class FundamentalsAgent(BaseAgent):
         if prem.get("ev_ebitda") is not None:
             vs.append(-np.tanh(prem["ev_ebitda"] / 60))
         vscore = float(np.mean(vs)) if vs else 0.0
-        verdict = ("Valuation looks justified or cheap relative to growth and peers" if vscore > 0.15 else
+        if loss_making and not vs:
+            verdict = "Earnings are negative, so P/E-based valuation is not meaningful"
+        else:
+            verdict = None
+        verdict = verdict or ("Valuation looks justified or cheap relative to growth and peers" if vscore > 0.15 else
                    "Valuation looks stretched relative to growth and peers" if vscore < -0.15 else
                    "Valuation roughly in line with growth and peers") if vs else "Insufficient data to judge valuation"
 
@@ -217,7 +235,7 @@ class FundamentalsAgent(BaseAgent):
                 r = _at(rv, i)
                 out.append({"period": str(rv.index[i].date()), "revenue": r, "net_income": _at(ni_, i),
                             "free_cash_flow": _at(fc, i) if fc is not None and len(fc) > i else None,
-                            "operating_margin": _ratio(_at(op_, i), r)})
+                            "operating_margin": _margin(_at(op_, i), r)})
             return list(reversed(out))
 
         coverage = sum(v is not None for v in m.values()) / len(m)

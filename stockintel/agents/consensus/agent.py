@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime, timezone
 from itertools import combinations
 
@@ -35,14 +36,35 @@ def _freshness(f: AgentFinding) -> float:
     return float(max(0.3, 0.5 ** (max(0, age - 3) / HALF_LIFE_DAYS.get(f.agent, 30))))
 
 
+CUT_RE = re.compile(r"(target cut|cuts? (its |the )?(price )?target|slash\w* (price )?target|lowers? (price )?target|downgrad)", re.I)
+
+
+def stale_analyst_check(findings: dict[str, AgentFinding]) -> str | None:
+    """Analyst data feeds lag. If news from the last 14 days reports downgrades or target cuts while the analyst
+    agent is still bullish, the consensus figures are probably stale."""
+    an, nw = findings.get("analyst"), findings.get("news")
+    if not (an and nw and nw.data and an.signal > 0.15):
+        return None
+    cutoff = datetime.now(timezone.utc).timestamp() - 14 * 86400
+    hits = [i.title for i in nw.data.items if CUT_RE.search(i.title)
+            and (not i.published_at or datetime.fromisoformat(i.published_at).timestamp() >= cutoff)]
+    if not hits:
+        return None
+    return (f"Recent news reports analyst downgrades or target cuts that the analyst data does not reflect "
+            f"(e.g. \"{hits[0][:110]}\"); the analyst consensus is treated as stale and its weight is cut by 70%.")
+
+
 def build_draft(findings: dict[str, AgentFinding]) -> DraftDecision:
     votes: list[AgentVote] = []
+    stale = stale_analyst_check(findings)
     for name, bw in BASE_WEIGHTS.items():
         f = findings.get(name)
         if f is None:
             continue
         fr = _freshness(f)
         ew = bw * f.confidence * fr * STATUS_MULT.get(f.status, 0)
+        if name == "analyst" and stale:
+            ew *= 0.3
         votes.append(AgentVote(agent=name, title=TITLES[name], status=f.status, signal=round(f.signal, 3),
                                confidence=round(f.confidence, 3), freshness=round(fr, 3), base_weight=bw,
                                effective_weight=round(ew, 4), stance=stance_of(f.signal), summary=f.summary[:300]))
@@ -70,7 +92,7 @@ def build_draft(findings: dict[str, AgentFinding]) -> DraftDecision:
                 resolution=f"{win.title} carries more weight ({win.effective_weight:.3f} vs {lose.effective_weight:.3f}) "
                            f"due to {', '.join(why) or 'comparable evidence'}; the net effect is reflected in the score.",
                 severity=round(min(1.0, abs(a.signal - b.signal) / 2 * (a.confidence + b.confidence)), 3)))
-    agreements = []
+    agreements = [stale] if stale else []
     for stance in ("bullish", "bearish", "neutral"):
         names = [v.title for v in votes if v.stance == stance and v.effective_weight > 0]
         if len(names) >= 2:

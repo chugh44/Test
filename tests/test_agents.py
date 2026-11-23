@@ -107,3 +107,22 @@ def test_conflict_detection():
                        ("fundamentals", 0.1), ("macro", 0.0), ("flow", 0.0)]}
     d = build_draft(fs)
     assert any(set(c.agents) == {"forecasting", "technical"} for c in d.conflicts)
+
+
+def test_stale_analyst_consensus_is_downweighted():
+    from stockintel.agents.consensus.agent import build_draft
+    from stockintel.agents.news.schema import NewsData, NewsItemOut, NewsFinding
+    from stockintel.schemas.common import AgentFinding
+    now = pd.Timestamp.now(tz="UTC").to_pydatetime()
+    base = {n: AgentFinding(agent=n, ticker="X", signal=0.0, confidence=0.6, data_as_of=now)
+            for n in ("forecasting", "fundamentals", "technical", "macro", "flow")}
+    base["analyst"] = AgentFinding(agent="analyst", ticker="X", signal=0.8, confidence=0.6, data_as_of=now)
+    item = NewsItemOut(id="1", title="Piper Sandler slashes price target 96% after FDA rejection", publisher="x", url=None,
+                       published_at=now.isoformat(), origin="t", credibility="high", category="analyst",
+                       sentiment="negative", impact="high", status="confirmed", summary="s")
+    base["news"] = NewsFinding(agent="news", ticker="X", signal=0.0, confidence=0.6, data_as_of=now,
+                               data=NewsData(items=[item], catalysts=[], risks=[], industry=[], sentiment_score=0,
+                                             counts={}, classifier="rule", web_search_used=False))
+    d = build_draft(base)
+    a = next(v for v in d.votes if v.agent == "analyst")
+    assert "stale" in d.agreements[0] and a.effective_weight < 0.6 * 0.15 * 0.6

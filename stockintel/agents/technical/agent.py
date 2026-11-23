@@ -9,7 +9,7 @@ from ...analytics.indicators import add_all
 from ...analytics.levels import find_levels
 from ...analytics.patterns import detect
 from ..base import AgentContext, BaseAgent
-from .prompts import MAX_STOP_ATR, MIN_STOP_ATR, RSI_OVERBOUGHT, RSI_OVERSOLD, SIGNAL_THRESHOLD, STOP_ATR_BUFFER
+from .prompts import MAX_STOP_ATR, MAX_STOP_PCT, MIN_STOP_ATR, RSI_OVERBOUGHT, RSI_OVERSOLD, SIGNAL_THRESHOLD, STOP_ATR_BUFFER
 from .schema import TechnicalData, TechnicalFinding, TradePlan
 
 
@@ -28,6 +28,9 @@ def build_plan(price: float, atr: float, levels: list, sma20: float | None) -> T
     stop = (s1 - STOP_ATR_BUFFER * atr) if s1 else price - 2 * atr
     stop = min(stop, price - MIN_STOP_ATR * atr)
     stop = max(stop, price - MAX_STOP_ATR * atr)
+    # Extremely volatile names can push an ATR stop below zero; a stop more than 50% away is not a stop.
+    stop = max(stop, price * (1 - MAX_STOP_PCT))
+    entry_low = round(max(entry_low, stop + 0.25 * (price - stop)), 2)
     risk = price - stop
     t1 = res[0] if res and res[0] - price > 0.5 * risk else price + 2 * risk
     t2 = next((r for r in res if r > t1 + 0.5 * risk), price + 3 * risk)

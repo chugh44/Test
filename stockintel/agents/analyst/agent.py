@@ -99,11 +99,22 @@ class AnalystAgent(BaseAgent):
         else:
             unavailable.append("upgrade/downgrade history")
 
+        # Consensus targets lag. If firms that revised in the last 30 days sit far below the consensus median,
+        # use their median for the signal and flag the consensus as stale.
+        stale_note = None
+        recent = [c.current_target for c in changes if c.current_target
+                  and pd.Timestamp(c.date) >= pd.Timestamp.today() - pd.Timedelta(days=30)]
+        recent_median = float(np.median(recent)) if len(recent) >= 2 else None
+        signal_upside = upside["median"]
+        if recent_median and targets["median"] and recent_median < 0.7 * targets["median"]:
+            signal_upside = (recent_median / price - 1) * 100
+            stale_note = (f"Consensus looks stale: the {len(recent)} targets revised in the last 30 days have a median of "
+                          f"{recent_median:.2f} ({signal_upside:+.1f}%), well below the consensus median {targets['median']:.2f}.")
         dispersion = ((targets["high"] - targets["low"]) / targets["median"]
                       if targets["high"] and targets["low"] and targets["median"] else None)
         comps = []
-        if upside["median"] is not None:
-            comps.append((np.tanh(upside["median"] / 20), 0.5))
+        if signal_upside is not None:
+            comps.append((np.tanh(signal_upside / 20), 0.5))
         if score is not None:
             comps.append((score, 0.25))
         if rev90 is not None:
@@ -124,6 +135,8 @@ class AnalystAgent(BaseAgent):
         if counts90:
             kp.append(f"Last 90 days: {ups} upgrades, {downs} downgrades"
                       + (f"; median target revision {rev90:+.1f}%" if rev90 is not None else ""))
+        if stale_note:
+            kp.insert(0, stale_note)
         for c in [c for c in changes if c.notable][:3]:
             kp.append(f"{c.date} {c.firm}: {c.action}" + (f" {c.from_grade}→{c.to_grade}" if c.from_grade else
                                                            f" to {c.to_grade}" if c.to_grade else "")
@@ -135,7 +148,7 @@ class AnalystAgent(BaseAgent):
             summary=(f"Analyst consensus implies {upside['median']:+.1f}% to the median target." if upside["median"] is not None
                      else "No consensus price target is available.") + f" ({LABEL})",
             key_points=kp,
-            risks=(["Wide target dispersion; analysts disagree materially."] if dispersion and dispersion > 0.6 else [])
+            risks=([stale_note] if stale_note else []) + (["Wide target dispersion; analysts disagree materially."] if dispersion and dispersion > 0.6 else [])
                   + (["Net downgrades over the last 90 days."] if downs > ups else []),
             sources=[ctx.source(f"{ctx.provider.info.name}: analyst price targets & rating changes", "analyst")],
             data_as_of=pd.Timestamp(latest).to_pydatetime() if latest else None,

@@ -87,7 +87,7 @@ def compute(findings: dict, amount: float, horizon: str, risk_appetite: str, str
         max_dn_px, basis = stop, "stop-loss exit (gaps through the stop can make the loss larger)"
     else:
         max_dn_px, basis = h.lo95, f"95% lower bound of the {horizon} forecast (no stop)"
-    max_dn = shares * max_dn_px - amount
+    max_dn = max(shares * max(max_dn_px, 0.0) - amount, -amount)
     above = [t["price"] for t in targets if t["price"] > p0 * 1.01]
     t1 = min(above) if above else h.bull
     rr = round((t1 - p0) / (p0 - stop), 2) if stop and p0 > stop else None

@@ -194,6 +194,8 @@ def build_markdown(state: dict, scenario: dict | None = None) -> str:
         L.append("| Agent | Signal | Confidence | Freshness | Weight | Stance |\n|---|---|---|---|---|---|")
         for v in c.votes:
             L.append(f"| {v.title} | {v.signal:+.2f} | {v.confidence:.2f} | {v.freshness:.2f} | {v.effective_weight:.3f} | {v.stance} |")
+        if c.agreements:
+            L.append("\n**Agreement and data checks:**\n" + "\n".join(f"- {x}" for x in c.agreements))
         if c.conflicts:
             L.append("\n**Conflicts and resolution:**\n" + "\n".join(f"- {x.description} {x.resolution}" for x in c.conflicts))
         L.append("\n**Bull points:**\n" + "\n".join(f"- {x}" for x in c.bull_points))
